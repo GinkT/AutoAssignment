@@ -12,7 +12,7 @@ import (
 
 // Подключение к БД
 func NewDatabase() (*sql.DB, error) {
-	dbPort, err := strconv.Atoi(os.Getenv("DB_PORT"));
+	dbPort, err := strconv.Atoi(os.Getenv("DB_PORT"))
 	if err != nil {
 		log.Println("[Database] Invalid DB_PORT in config!")
 		return nil, err

@@ -6,8 +6,11 @@ import (
 	"log"
 )
 
-var ErrorAlreadyInDB error = errors.New("Link is already in database!")
+var ErrorAlreadyInDB = errors.New("link is already in database")
 
+// Добавляет запись в БД, в случае возникновения конфликта(запись уже есть), ничего не делает.
+// Возвращает ошибку если запись есть. Это обычно не критично, но критично для случая, когда
+// пользователь хочет кастомное имя для ссылки.
 func AddLinkToDB(db *sql.DB, shortLink, longLink string) error {
 	sqlStatement := `
 		INSERT INTO public."links"
@@ -32,6 +35,8 @@ func AddLinkToDB(db *sql.DB, shortLink, longLink string) error {
 	return nil
 }
 
+
+// Получает полную ссылку для перенаправления пользователя.
 func GetLinkFromDB(db *sql.DB, shortLink string) (string, error) {
 	sqlStatement := `
 		SELECT "longlink" FROM public."links"

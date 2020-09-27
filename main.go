@@ -30,9 +30,10 @@ func main() {
 	router.Handle("/", validLink(http.HandlerFunc(env.ShortenerHandler)))
 
 	log.Println("Started to listen and serve at :8181")
-	http.ListenAndServe(":8181", router)
+	log.Fatalln(http.ListenAndServe(":8181", router))
 }
 
+// Хэндлер который выполняет перенаправление на сохраненную ссылку
 func (env *Env)RedirectHandler(w http.ResponseWriter, r *http.Request) {
 	path := strings.Trim(r.URL.Path, "/")
 
@@ -43,10 +44,11 @@ func (env *Env)RedirectHandler(w http.ResponseWriter, r *http.Request) {
 		Json404Response(w, "Internal error")
 		return
 	}
-	log.Println("[Redirect] Succesfully redirected user to:", link)
+	log.Println("[Redirect] Successfully redirected user to:", link)
 	http.Redirect(w, r, link, http.StatusMovedPermanently)
 }
 
+// Хэндлер который выполняет укорачивание ссылки
 func (env *Env)ShortenerHandler(w http.ResponseWriter, r *http.Request) {
 	linkToShort := r.URL.Query().Get("link")
 	customLink := r.URL.Query().Get("custom")
@@ -69,18 +71,20 @@ func (env *Env)ShortenerHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	default:
-		shortenedLink = shrinkLink(linkToShort)
+		shortenedLink = ShrinkLink(linkToShort)
 		log.Printf("[Shortener] Got a request with link: %s Shortened it to: %s\n", linkToShort, shortenedLink)
-		if err := db.AddLinkToDB(env.Database, shortenedLink, linkToShort); err != nil && err != db.ErrorAlreadyInDB {
+		err := db.AddLinkToDB(env.Database, shortenedLink, linkToShort)
+		// ErrorAlreadyInDB не критична.
+		if err != nil && err != db.ErrorAlreadyInDB {
 			Json404Response(w, "Internal error")
 			return
 		}
 	}
 
 	JsonOKResponse(w, linkToShort, shortenedLink)
-	w.WriteHeader(http.StatusOK)
 }
 
+// Middleware для валидации ссылки
 func validLink(shortener http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		link := r.URL.Query().Get("link")
@@ -94,16 +98,19 @@ func validLink(shortener http.Handler) http.Handler {
 	})
 }
 
-func shrinkLink(data string) string {
+// Подсчитывает crc32 сумму предложенной ссылки. Переводит в строку
+func ShrinkLink(data string) string {
 	crcH := crc32.ChecksumIEEE([]byte(data))
 	dataHash := strconv.FormatUint(uint64(crcH), 36)
 	return dataHash
 }
 
+// ----------------------------------------------------- JSON Encoders
+
 type JsonOKStruct struct {
-	Status 			int			`json:"status"'`
-	Link			string		`json:"link"'`
-	ConvertedTo 	string		`json:"convertedTo"'`
+	Status 			int			`json:"status"`
+	Link			string		`json:"link"`
+	ConvertedTo 	string		`json:"convertedTo"`
 }
 
 func JsonOKResponse(w http.ResponseWriter, link, convertedTo string) {
@@ -113,12 +120,12 @@ func JsonOKResponse(w http.ResponseWriter, link, convertedTo string) {
 		ConvertedTo: 	convertedTo,
 	}
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 type Json404Struct struct {
-	Status 			int 		`json:"status"'`
-	Message			string		`json:"message"'`
+	Status 			int 		`json:"status"`
+	Message			string		`json:"message"`
 }
 
 func Json404Response(w http.ResponseWriter, message string) {
@@ -127,5 +134,6 @@ func Json404Response(w http.ResponseWriter, message string) {
 		Message: 		message,
 	}
 	w.WriteHeader(http.StatusNotFound)
-	json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(response)
 }
+
