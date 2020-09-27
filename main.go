@@ -27,7 +27,7 @@ func main() {
 
 	router := mux.NewRouter()
 	router.HandleFunc("/{id}", env.RedirectHandler)
-	router.Handle("/", validLink(http.HandlerFunc(env.ShortenerHandler)))
+	router.Handle("/", ValidLink(http.HandlerFunc(env.ShortenerHandler)))
 
 	log.Println("Started to listen and serve at :8181")
 	log.Fatalln(http.ListenAndServe(":8181", router))
@@ -85,7 +85,7 @@ func (env *Env)ShortenerHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // Middleware для валидации ссылки
-func validLink(shortener http.Handler) http.Handler {
+func ValidLink(shortener http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		link := r.URL.Query().Get("link")
 		_, err := url.ParseRequestURI(link)

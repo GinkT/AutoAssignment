@@ -2,7 +2,6 @@ package main
 
 import (
 	"gopkg.in/DATA-DOG/go-sqlmock.v2"
-	"log"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -86,17 +85,20 @@ func TestEnv_ShortenerHandler(t *testing.T) {
 	}
 }
 
-// Middleware для валидации ссылки
-func valiпdLink(shortener http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func TestValidLink(t *testing.T) {
+	shortenerHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		link := r.URL.Query().Get("link")
 		_, err := url.ParseRequestURI(link)
 		if err != nil {
-			log.Printf("[Shortener] User link(%s) does not match URL\n", link)
-			Json404Response(w, "Invalid link!")
-			return
+			t.Fatal("Link does not match link pattern!")
 		}
-		shortener.ServeHTTP(w, r)
 	})
+
+	handlerToTest := ValidLink(shortenerHandler)
+
+	reqError := httptest.NewRequest("GET", "/?link=asdasd", nil)
+	handlerToTest.ServeHTTP(httptest.NewRecorder(), reqError)
+
+	reqRight := httptest.NewRequest("GET", "/?link=https://stackoverflow.com/questions/51201056/testing-golang-middleware-that-modifies-the-request", nil)
+	handlerToTest.ServeHTTP(httptest.NewRecorder(), reqRight)
 }
- */
