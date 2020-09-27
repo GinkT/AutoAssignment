@@ -1,6 +1,13 @@
 package main
 
-import "testing"
+import (
+	"gopkg.in/DATA-DOG/go-sqlmock.v2"
+	"log"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"testing"
+)
 
 
 // Проверяю чтобы функция возвращала то же значение
@@ -23,3 +30,73 @@ func TestShrinkLink(t *testing.T) {
 		}
 	}
 }
+
+func TestEnv_RedirectHandler(t *testing.T) {
+	DB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer DB.Close()
+	env := &Env{DB}
+
+	row := sqlmock.NewRows([]string{"One"}).AddRow("https://github.com/DATA-DOG/go-sqlmock")
+	sqlStatement := `
+		SELECT "longlink" FROM public."links"
+	`
+
+	testShortLink := "hithere"
+	mock.ExpectQuery(sqlStatement).WithArgs(testShortLink).WillReturnRows(row)
+	req, err := http.NewRequest("GET", "/" + testShortLink, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rr := httptest.NewRecorder()
+	handler := http.HandlerFunc(env.RedirectHandler)
+	handler.ServeHTTP(rr, req)
+
+	if status := rr.Code; status != http.StatusMovedPermanently {
+		t.Errorf("handler returned wrong status code: got %v want %v",
+			status, http.StatusOK)
+	}
+}
+
+func TestEnv_ShortenerHandler(t *testing.T) {
+	DB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer DB.Close()
+	env := &Env{DB}
+	mock.ExpectExec(`INSERT INTO public."links" VALUES`).WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
+
+	req, err := http.NewRequest("GET", "/?link=https://dou.ua/lenta/articles/golang-httptest", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rr := httptest.NewRecorder()
+	handler := http.HandlerFunc(env.ShortenerHandler)
+
+	handler.ServeHTTP(rr, req)
+
+	if status := rr.Code; status != http.StatusOK {
+		t.Errorf("handler returned wrong status code: got %v want %v",
+			status, http.StatusOK)
+	}
+}
+
+// Middleware для валидации ссылки
+func valiпdLink(shortener http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		link := r.URL.Query().Get("link")
+		_, err := url.ParseRequestURI(link)
+		if err != nil {
+			log.Printf("[Shortener] User link(%s) does not match URL\n", link)
+			Json404Response(w, "Invalid link!")
+			return
+		}
+		shortener.ServeHTTP(w, r)
+	})
+}
+ */
