@@ -1,16 +1,23 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"github.com/AutoAssignment/db"
 	"github.com/gorilla/mux"
 	"hash/crc32"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
+	"os"
+	"os/signal"
+	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
+	"time"
 )
 
 type Env struct {
@@ -29,8 +36,24 @@ func main() {
 	router.HandleFunc("/{id}", env.RedirectHandler)
 	router.Handle("/", ValidLink(http.HandlerFunc(env.ShortenerHandler)))
 
+	srv := &http.Server{Handler: router}
+	ln, err := net.Listen("tcp", ":8181")
+	if err != nil {
+		log.Fatalln(err)
+	}
+	go func () {
+		log.Fatalln(srv.Serve(ln))
+	} ()
+
+	// Graceful shutdown
 	log.Println("Started to listen and serve at :8181")
-	log.Fatalln(http.ListenAndServe(":8181", router))
+	done := make(chan os.Signal, 1)
+	signal.Notify(done, syscall.SIGTERM)
+	<-done
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	srv.Shutdown(ctx)
 }
 
 // Хэндлер который выполняет перенаправление на сохраненную ссылку
@@ -93,6 +116,20 @@ func ValidLink(shortener http.Handler) http.Handler {
 			log.Printf("[Shortener] User link(%s) does not match URL\n", link)
 			Json404Response(w, "Invalid link!")
 			return
+		}
+		if customLink := r.URL.Query().Get("custom"); customLink != "" {
+			log.Println("[DEBUG!!] CustomLink", customLink)
+			pattern := `^\w+$`
+			re, err := regexp.Match(pattern, []byte(customLink))
+			if err != nil {
+				log.Println("RegExp error!")
+				Json404Response(w, "Internal server error")
+				return
+			}
+			if !re {
+				Json404Response(w, "Invalid custom link!")
+				return
+			}
 		}
 		shortener.ServeHTTP(w, r)
 	})
