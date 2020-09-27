@@ -1,7 +1,131 @@
 package main
 
-import "fmt"
+import (
+	"database/sql"
+	"encoding/json"
+	"github.com/AutoAssignment/db"
+	"github.com/gorilla/mux"
+	"hash/crc32"
+	"log"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+)
+
+type Env struct {
+	Database *sql.DB
+}
 
 func main() {
-	fmt.Println("Initial commit!")
+	Database, err := db.NewDatabase()
+	if err != nil {
+		log.Fatalln(err)
+	}
+	defer Database.Close()
+	env := &Env{Database: Database}
+
+	router := mux.NewRouter()
+	router.HandleFunc("/{id}", env.RedirectHandler)
+	router.Handle("/", validLink(http.HandlerFunc(env.ShortenerHandler)))
+
+	log.Println("Started to listen and serve at :8181")
+	http.ListenAndServe(":8181", router)
+}
+
+func (env *Env)RedirectHandler(w http.ResponseWriter, r *http.Request) {
+	path := strings.Trim(r.URL.Path, "/")
+
+	log.Println("[Redirect] Got request with path:", path)
+	link, err := db.GetLinkFromDB(env.Database, path)
+	if err != nil {
+		log.Println(err)
+		Json404Response(w, "Internal error")
+		return
+	}
+	log.Println("[Redirect] Succesfully redirected user to:", link)
+	http.Redirect(w, r, link, http.StatusMovedPermanently)
+}
+
+func (env *Env)ShortenerHandler(w http.ResponseWriter, r *http.Request) {
+	linkToShort := r.URL.Query().Get("link")
+	customLink := r.URL.Query().Get("custom")
+
+	var shortenedLink string
+	switch {
+	case customLink != "":
+		shortenedLink = customLink
+		log.Printf("[Shortener] Got a request with link: %s Shortened it to(custom): %s\n", linkToShort, shortenedLink)
+
+		err := db.AddLinkToDB(env.Database, shortenedLink, linkToShort)
+		switch  {
+		case err == db.ErrorAlreadyInDB:
+			Json404Response(w, "Custom link is already taken!")
+			log.Println("[DB]", err)
+			return
+		case err != nil:
+			Json404Response(w, "Internal error")
+			log.Println("[DB]", err)
+			return
+		}
+	default:
+		shortenedLink = shrinkLink(linkToShort)
+		log.Printf("[Shortener] Got a request with link: %s Shortened it to: %s\n", linkToShort, shortenedLink)
+		if err := db.AddLinkToDB(env.Database, shortenedLink, linkToShort); err != nil && err != db.ErrorAlreadyInDB {
+			Json404Response(w, "Internal error")
+			return
+		}
+	}
+
+	JsonOKResponse(w, linkToShort, shortenedLink)
+	w.WriteHeader(http.StatusOK)
+}
+
+func validLink(shortener http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		link := r.URL.Query().Get("link")
+		_, err := url.ParseRequestURI(link)
+		if err != nil {
+			log.Printf("[Shortener] User link(%s) does not match URL\n", link)
+			Json404Response(w, "Invalid link!")
+			return
+		}
+		shortener.ServeHTTP(w, r)
+	})
+}
+
+func shrinkLink(data string) string {
+	crcH := crc32.ChecksumIEEE([]byte(data))
+	dataHash := strconv.FormatUint(uint64(crcH), 36)
+	return dataHash
+}
+
+type JsonOKStruct struct {
+	Status 			int			`json:"status"'`
+	Link			string		`json:"link"'`
+	ConvertedTo 	string		`json:"convertedTo"'`
+}
+
+func JsonOKResponse(w http.ResponseWriter, link, convertedTo string) {
+	response := &JsonOKStruct{
+		Status:        	200,
+		Link:			link,
+		ConvertedTo: 	convertedTo,
+	}
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
+}
+
+type Json404Struct struct {
+	Status 			int 		`json:"status"'`
+	Message			string		`json:"message"'`
+}
+
+func Json404Response(w http.ResponseWriter, message string) {
+	response := &Json404Struct{
+		Status:        	404,
+		Message: 		message,
+	}
+	w.WriteHeader(http.StatusNotFound)
+	json.NewEncoder(w).Encode(response)
 }
